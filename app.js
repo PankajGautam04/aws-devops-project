@@ -12,7 +12,7 @@ app.get('/', (req, res) => {
     res.send(`
         <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0d1117; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
             <div style="background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 400px;">
-                <h1 style="color: #58a6ff; margin-bottom: 20px;">🚀 DevOps Dashboard</h1>
+                <h1 style="color: #58a6ff; margin-bottom: 20px;">🚀 Server Dashboard</h1>
                 <div style="background: #21262d; padding: 15px; border-radius: 8px; margin-bottom: 10px; text-align: left;">
                     <p><b>Status:</b> <span style="color: #3fb950;">● Healthy</span></p>
                     <p><b>Container OS:</b> ${os.type()} ${os.arch()}</p>
