@@ -3,3 +3,8 @@ node_modules/
 *.csv
 *.log
 *.env
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.tf
