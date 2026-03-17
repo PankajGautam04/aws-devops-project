@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
                     <p><b>Container OS:</b> ${os.type()} ${os.arch()}</p>
                     <p><b>RAM Usage:</b> ${usedMem}GB / ${totalMem}GB</p>
                     <p><b>CPU Cores:</b> ${os.cpus().length}</p>
-                    <p><b>Uptime:</b> ${(os.uptime() / 3600).toFixed(2)} hrs</p>
+                   <p><b>Uptime:</b> ${(os.uptime() / 86400).toFixed(2)} days</p>
                 </div>
                 <p style="font-size: 0.8em; color: #8b949e;">Deployed via <b>GitHub Actions</b> to <b>AWS EC2</b></p>
             </div>
