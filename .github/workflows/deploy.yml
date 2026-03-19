@@ -6,7 +6,7 @@ on:
 
 env:
   AWS_REGION: ap-south-1 # Changed to your EKS cluster region
-  ECR_REPOSITORY: vidyarthi-backend # Update if you named it something else!
+  ECR_REPOSITORY: web-app # Update if you named it something else!
   EKS_CLUSTER_NAME: aws-devops-cluster
 
 jobs:
