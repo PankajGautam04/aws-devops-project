@@ -1,51 +1,49 @@
-name: CI/CD Pipeline to AWS
+name: CI/CD Pipeline to EKS
 
 on:
   push:
-    branches: [ "main" ] # Runs every time you push to the main branch
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ap-south-1 # Changed to your EKS cluster region
+  ECR_REPOSITORY: vidyarthi-backend # Update if you named it something else!
+  EKS_CLUSTER_NAME: aws-devops-cluster
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Checkout Code from GitHub
-        uses: actions/checkout@v4 # Updated to v4 for latest node support
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: 2. Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2 # FIX: Updated from v1 to v2 to stop using set-output
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-north-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: 3. Login to Amazon ECR
+      - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2 # FIX: Masks Docker password automatically
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 4. Build, Tag, and Push Docker Image
-        id: build-image # Added ID to support outputs
+      - name: Build and Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: web-app
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }} # Best practice: using git commit hash instead of "latest"
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          # FIX: New way to handle outputs (replaces the deprecated set-output)
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      - name: 5. Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            # Login to ECR on the EC2 server
-            aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            # Pull the latest image
-            docker pull ${{ steps.login-ecr.outputs.registry }}/web-app:latest
-            # Stop the old container (if any) and start the new one
-            docker stop web-app-container || true
-            docker rm web-app-container || true
-            docker run -d --name web-app-container -p 80:80 ${{ steps.login-ecr.outputs.registry }}/web-app:latest
+      - name: Update KubeConfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Deploy to Amazon EKS
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Apply the network rules
+          kubectl apply -f k8s-deploy.yaml
+          # Tell EKS to pull the new image
+          kubectl set image deployment/express-webapp web-container=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
