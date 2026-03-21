@@ -1,13 +1,14 @@
-name: CI/CD Pipeline to EKS
+name: CI/CD Pipeline to ECS
 
 on:
   push:
     branches: [ "main" ]
 
 env:
-  AWS_REGION: ap-south-1 # Changed to your EKS cluster region
-  ECR_REPOSITORY: web-app # Update if you named it something else!
-  EKS_CLUSTER_NAME: aws-devops-cluster
+  AWS_REGION: ap-south-1 
+  ECR_REPOSITORY: web-app 
+  ECS_CLUSTER: pankaj-devops-cluster
+  ECS_SERVICE: pankaj-webapp-service
 
 jobs:
   build-and-deploy:
@@ -30,20 +31,11 @@ jobs:
       - name: Build and Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }} # Best practice: using git commit hash instead of "latest"
+          IMAGE_TAG: latest
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      - name: Update KubeConfig
-        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
-
-      - name: Deploy to Amazon EKS
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Deploy to Amazon ECS
         run: |
-          # Apply the network rules
-          kubectl apply -f k8s-deploy.yaml
-          # Tell EKS to pull the new image
-          kubectl set image deployment/express-webapp web-container=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment

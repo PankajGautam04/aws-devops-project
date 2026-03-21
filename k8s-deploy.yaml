@@ -3,11 +3,11 @@ kind: Deployment
 metadata:
   name: express-webapp
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: webapp
-  template:
+  template: # POD TEMPLATE: Defines the pod that will be created by the Deployment
     metadata:
       labels:
         app: webapp
@@ -20,15 +20,15 @@ spec:
         - containerPort: 80
 
 ---
-apiVersion: v1
-kind: Service
+apiVersion: v1 #
+kind: Service # SERVICE DEFINITION: Exposes the Deployment to the internet via a LoadBalancer
 metadata:
-  name: webapp-loadbalancer
+  name: webapp-loadbalancer # SERVICE NAME: webapp-loadbalancer
 spec:
-  type: LoadBalancer 
+  type: LoadBalancer # SERVICE TYPE: LoadBalancer for EKS to provision an ELB
   selector:
-    app: webapp
-  ports:
+    app: webapp # SELECTOR: Matches the label in the Deployment to route traffic to the correct pods
+  ports: # PORTS: Defines the port mapping for the service
     - protocol: TCP
-      port: 80 
-      targetPort: 80
+      port: 80 # SERVICE PORT: The port that the LoadBalancer listens on
+      targetPort: 80 # TARGET PORT: The port on the container that receives traffic (must match containerPort in Deployment)

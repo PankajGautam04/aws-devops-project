@@ -3,8 +3,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Add the new AWS and Multer dependencies
-RUN npm init -y && npm install express multer @aws-sdk/client-s3
+# 🚨 ADDED mysql2 HERE!
+RUN npm init -y && npm install express multer @aws-sdk/client-s3 mysql2
 
 COPY app.js .
 
