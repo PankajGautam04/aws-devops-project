@@ -14,11 +14,13 @@ const s3 = new S3Client({ region: 'ap-south-1' });
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Set up the RDS Database Connection Pool
+const DB_NAME = process.env.DB_NAME || 'devopsdb';
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST,           // Injected by Terraform
     user: process.env.DB_USER || 'admin',
     password: process.env.DB_PASSWORD || 'DevOps12345!',
-    database: 'mysql',                   
+    database: DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -27,6 +29,17 @@ const pool = mysql.createPool({
 // Auto-create a table to store our file metadata
 async function initDB() {
     try {
+        // First, create the database if it doesn't exist
+        const tempConn = await mysql.createConnection({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER || 'admin',
+            password: process.env.DB_PASSWORD || 'DevOps12345!',
+        });
+        await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+        await tempConn.end();
+        console.log(`✅ Database "${DB_NAME}" is ready!`);
+
+        // Now create the table using the pool (which targets DB_NAME)
         const connection = await pool.getConnection();
         await connection.query(`
             CREATE TABLE IF NOT EXISTS file_uploads (
@@ -37,7 +50,7 @@ async function initDB() {
             )
         `);
         connection.release();
-        console.log('✅ Database connected and "file_uploads" table is ready!');
+        console.log('✅ "file_uploads" table is ready!');
     } catch (err) {
         console.error('❌ Database initialization failed. Check your connection string!', err.message);
     }
@@ -112,7 +125,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         
         // 1. Upload the physical file to AWS S3
         const command = new PutObjectCommand({
-            Bucket: 'web-app-pankaj--aps1-az1--x-s3', 
+            Bucket: process.env.S3_BUCKET || 'web-app-pankaj--aps1-az1--x-s3', 
             Key: uniqueFileName,
             Body: req.file.buffer,
             ContentType: req.file.mimetype
