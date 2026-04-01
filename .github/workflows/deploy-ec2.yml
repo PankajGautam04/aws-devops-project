@@ -1,0 +1,68 @@
+name: Deploy Node.js to EC2 via SSH
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ap-south-1
+  EC2_USER: ec2-user              # Correct user for Amazon Linux 2023
+  EC2_HOST: 13.127.110.148   # <--- REPLACE THIS WITH YOUR EC2 IP
+  APP_DIR: /home/ec2-user/aws-devops-project
+
+# Allows GitHub to request the secure AWS token
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Keyless Auth to AWS
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::410150244103:role/GitHubActions-EC2-DeployRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 2. Fetch Key, Sync Code, and Restart App
+      - name: Deploy via SSH and PM2
+        run: |
+          # Trap ensures the key is deleted even if the deployment fails
+          trap 'rm -f temp_key.pem; echo "Key securely destroyed."' EXIT
+          
+          # Fetch the key from SSM Parameter Store using your exact parameter name
+          aws ssm get-parameter \
+            --name "ssh-key" \
+            --with-decryption \
+            --query "Parameter.Value" \
+            --output text > temp_key.pem
+            
+          chmod 400 temp_key.pem
+          
+          # Create the app directory on the server if it doesn't exist
+          ssh -i temp_key.pem -o StrictHostKeyChecking=no ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "mkdir -p ${{ env.APP_DIR }}"
+          
+          # Sync your GitHub code to the EC2 server (excluding node_modules and uploads)
+          rsync -avz -e "ssh -i temp_key.pem -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'uploads' \
+            ./ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:${{ env.APP_DIR }}
+            
+          # SSH into the server, install dependencies, and restart the app
+          ssh -i temp_key.pem -o StrictHostKeyChecking=no ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'EOF'
+            cd /home/ec2-user/aws-devops-project
+            npm install
+            
+            # If pm2 is already running the app, restart it. If not, start it.
+            # Running with sudo because port 80 requires root privileges
+            sudo pm2 restart web-app || sudo pm2 start index.js --name web-app
+            
+            # Save PM2 list so it restarts if the server reboots
+            sudo pm2 save
+          EOF
