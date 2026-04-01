@@ -47,11 +47,12 @@ jobs:
           # Create the app directory on the server if it doesn't exist
           ssh -i temp_key.pem -o StrictHostKeyChecking=no ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "mkdir -p ${{ env.APP_DIR }}"
           
-          # Sync your GitHub code to the EC2 server (excluding node_modules and uploads)
+          # Sync your GitHub code to the EC2 server 
           rsync -avz -e "ssh -i temp_key.pem -o StrictHostKeyChecking=no" \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'uploads' \
+            --exclude 'temp_key.pem' \
             ./ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:${{ env.APP_DIR }}
             
           # SSH into the server, install dependencies, and restart the app
