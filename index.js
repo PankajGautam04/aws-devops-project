@@ -1,73 +1,32 @@
 const express = require('express');
 const os = require('os');
 const multer = require('multer');
-const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const port = 80;
 
-// Create local uploads folder if it doesn't exist
+// 1. Create local uploads folder if it doesn't exist
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
 
-// Configure Multer to save files locally instead of memory/S3
+// 2. Make the uploads folder publicly viewable (so you can click and view images)
+app.use('/uploads', express.static(uploadDir));
+
+// 3. Configure Multer to save files locally
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, uploadDir)
     },
     filename: function (req, file, cb) {
+        // Keeps the original name but adds a timestamp so files don't overwrite each other
         cb(null, Date.now() + '-' + file.originalname)
     }
 });
 const upload = multer({ storage: storage });
-
-// ---------------------------------------------------------
-// 1. RDS DATABASE CONFIGURATION
-// ---------------------------------------------------------
-const DB_NAME = process.env.DB_NAME || 'devopsdb';
-
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,           // Needs to be in your EC2 .env file
-    user: process.env.DB_USER || 'admin',
-    password: process.env.DB_PASSWORD || 'DevOps12345!',
-    database: DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
-
-// Auto-create table to store file metadata
-async function initDB() {
-    try {
-        const tempConn = await mysql.createConnection({
-            host: process.env.DB_HOST,
-            user: process.env.DB_USER || 'admin',
-            password: process.env.DB_PASSWORD || 'DevOps12345!',
-        });
-        await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
-        await tempConn.end();
-        console.log(`✅ Database "${DB_NAME}" is ready!`);
-
-        const connection = await pool.getConnection();
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS file_uploads (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                original_filename VARCHAR(255) NOT NULL,
-                local_path VARCHAR(255) NOT NULL,
-                upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        connection.release();
-        console.log('✅ "file_uploads" table is ready!');
-    } catch (err) {
-        console.error('❌ Database initialization failed.', err.message);
-    }
-}
-initDB();
 
 function getInternalIP() {
     const interfaces = os.networkInterfaces();
@@ -80,27 +39,37 @@ function getInternalIP() {
 }
 
 // ---------------------------------------------------------
-// ROUTE 1: The Server Dashboard
+// ROUTE 1: The Server Dashboard (Reads from Local Disk)
 // ---------------------------------------------------------
-app.get('/', async (req, res) => {
+app.get('/', (req, res) => {
     const totalMem = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
     const freeMem = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
     const usedMem = (totalMem - freeMem).toFixed(2);
     
-    let dbRowsHTML = '<p style="color: #8b949e;">No files in database yet.</p>';
+    let fileRowsHTML = '<p style="color: #8b949e;">No files on server yet.</p>';
+    
     try {
-        const [rows] = await pool.query('SELECT * FROM file_uploads ORDER BY upload_time DESC LIMIT 5');
-        if (rows.length > 0) {
-            dbRowsHTML = rows.map(row => `<p style="margin: 2px 0; font-size: 14px;">📄 <b>${row.original_filename}</b> (Saved to EC2 Disk)</p>`).join('');
+        // Read the files directly from the EC2 hard drive
+        const files = fs.readdirSync(uploadDir);
+        
+        // Filter out hidden files and sort them (newest first, based on our timestamp naming)
+        const validFiles = files.filter(f => !f.startsWith('.')).sort().reverse().slice(0, 10);
+        
+        if (validFiles.length > 0) {
+            fileRowsHTML = validFiles.map(file => `
+                <p style="margin: 5px 0; font-size: 14px;">
+                    📄 <a href="/uploads/${file}" target="_blank" style="color: #58a6ff; text-decoration: none;"><b>${file}</b></a>
+                </p>
+            `).join('');
         }
     } catch (err) {
-        dbRowsHTML = `<p style="color: red;">Database disconnected: ${err.message}</p>`;
+        fileRowsHTML = `<p style="color: red;">Error reading disk: ${err.message}</p>`;
     }
 
     res.send(`
         <body style="font-family: 'Segoe UI', sans-serif; background-color: #0d1117; color: #c9d1d9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px;">
             <div style="background: #161b22; padding: 30px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 10px 30px rgba(0,0,0,0.8); width: 100%; max-width: 500px;">
-                <h1 style="color: #58a6ff; margin-top: 0; text-align: center;">🚀 AWS EC2 Dashboard</h1>
+                <h1 style="color: #58a6ff; margin-top: 0; text-align: center;">🚀 Standalone EC2 Node</h1>
                 
                 <div style="background: #21262d; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #3fb950;">
                     <h3 style="margin-top: 0; color: #f0f6fc;">🖥️ Server Identity</h3>
@@ -110,12 +79,12 @@ app.get('/', async (req, res) => {
                 </div>
 
                 <div style="background: #21262d; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #d2a8ff;">
-                    <h3 style="margin-top: 0; color: #f0f6fc;">🗄️ Recent RDS Database Entries</h3>
-                    ${dbRowsHTML}
+                    <h3 style="margin-top: 0; color: #f0f6fc;">🗄️ Local Disk Storage (/uploads)</h3>
+                    ${fileRowsHTML}
                 </div>
 
                 <div style="background: #21262d; padding: 15px; border-radius: 8px; border-left: 4px solid #ff7b72;">
-                    <h3 style="margin-top: 0; color: #f0f6fc;">☁️ Upload to EC2 & RDS</h3>
+                    <h3 style="margin-top: 0; color: #f0f6fc;">☁️ Upload to Server</h3>
                     <form action="/api/upload" method="POST" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 10px;">
                         <input type="file" name="file" required style="color: #c9d1d9; background: #0d1117; padding: 10px; border: 1px solid #30363d; border-radius: 6px;" />
                         <button type="submit" style="background: #238636; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold;">Upload File</button>
@@ -127,24 +96,17 @@ app.get('/', async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// ROUTE 2: Local Upload + RDS Endpoint
+// ROUTE 2: Local Upload Endpoint (No Database)
 // ---------------------------------------------------------
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', upload.single('file'), (req, res) => {
     try {
         if (!req.file) return res.status(400).send('No file uploaded.');
-
-        // Insert the file metadata into AWS RDS Database
-        await pool.query(
-            'INSERT INTO file_uploads (original_filename, local_path) VALUES (?, ?)', 
-            [req.file.originalname, req.file.filename]
-        );
         
         res.send(`
             <body style="font-family: sans-serif; background: #0d1117; color: white; display: flex; justify-content: center; align-items: center; height: 100vh;">
                 <div style="text-align: center; background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #3fb950;">
                     <h1 style="color: #3fb950;">✅ Upload Successful!</h1>
-                    <p>File physically saved to <b>EC2 Local Disk (/uploads)</b>.</p>
-                    <p>Metadata recorded in <b>AWS RDS MySQL</b>.</p>
+                    <p>File securely saved to the EC2 hard drive.</p>
                     <a href="/" style="color: #58a6ff; text-decoration: none; margin-top: 20px; display: inline-block;">⬅ Return to Dashboard</a>
                 </div>
             </body>
@@ -155,4 +117,4 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => console.log(`Standalone server running on port ${port}`));
